@@ -1,0 +1,647 @@
+//#include"D:\software\GPS\wb.c"
+#include <Wire.h>
+#include <Arduino.h>
+#include <stdarg.h>
+//#include <SoftwareSerial.h>
+#include <avr/pgmspace.h>
+char inout_tag=0;
+
+#define GPSSerial Serial3
+#define LcdSerial Serial2
+
+const char string_0[] PROGMEM = "BOXF(12,99,308,103,5);BOXF(12,169,308,173,0);BOXF(12,239,308,243,0);BOXF(12,309,308,313,0);";//选中下划线一
+const char string_1[] PROGMEM = "BOXF(12,99,308,103,0);BOXF(12,169,308,173,5);BOXF(12,239,308,243,0);BOXF(12,309,308,313,0);";//选中下划线二
+const char string_2[] PROGMEM = "BOXF(12,99,308,103,0);BOXF(12,169,308,173,0);BOXF(12,239,308,243,5);BOXF(12,309,308,313,0);";//选中下划线三
+const char string_3[] PROGMEM = "BOXF(12,99,308,103,0);BOXF(12,169,308,173,0);BOXF(12,239,308,243,0);BOXF(12,309,308,313,5);";//选中下划线四
+
+const char string_4[] PROGMEM = "SXY(90,330);DS24(12,3,'YES',1,0);BOX(0,0,60,30,1);DS24(98,3,'NO',1,0);BOX(80,0,140,30,1);SXY(0,0);;";//弹出确定菜单
+const char string_5[] PROGMEM = "SXY(90,330);DS24(12,3,'   ',1,0);BOX(0,0,60,30,0);DS24(98,3,'  ',1,0);BOX(80,0,140,30,0);SXY(0,0);;";//隐藏确定菜单
+const char string_6[] PROGMEM = "BOXF(12,99,308,103,0);BOXF(12,169,308,173,0);BOXF(12,239,308,243,0);BOXF(12,309,308,313,0);";//清空下划线
+const char string_7[] PROGMEM = "";//
+const char string_8[] PROGMEM = "";//
+const char string_9[] PROGMEM = "";//
+const char string_10[] PROGMEM = "";
+const char string_11[] PROGMEM = "";
+const char string_12[] PROGMEM = "";
+const char string_13[] PROGMEM = "";
+const char string_14[] PROGMEM = "";
+const char string_15[] PROGMEM = "";
+const char string_16[] PROGMEM = "";
+
+const char* const string_table[] PROGMEM = {string_0, string_1, string_2, string_3, string_4, string_5,string_6,string_7,string_8,string_9,string_10,string_11,string_12,string_13,string_14,string_15,string_16};
+char buffer[160]; 
+
+String x1="              ",y1="              ",x2="              ",y2="              ",x3="              ",y3="              ",x4="              ",y4="              ";//gps坐标初值
+
+String serial_nub1="A",serial_nub2="B",serial_nub3="C",serial_nub4="D";//编号初值
+
+//char nmeaSentence[80];
+String latitude;    //纬度
+String longitude;   //经度
+String lndSpeed;    //速度
+String gpsTime;     //UTC时间，本初子午线经度0度的时间，和北京时间差8小时
+String beiJingTime;   //北京时间
+
+
+const unsigned int gpsRxBufferLength = 200;
+char gpsRxBuffer[gpsRxBufferLength];
+
+struct
+{
+	char nmeaSentence[80];
+	bool isGetData;		//是否获取到GPS数据
+	bool isParseData;	//是否解析完成
+	char UTCTime[11];		//UTC时间
+	char latitude[11];		//纬度
+	char N_S[2];		//N/S
+	char longitude[12];		//经度
+	char E_W[2];		//E/W
+	bool isUsefull;		//定位信息是否有效
+} Save_Data;
+
+
+void setup() {
+  Serial.begin(115200);       
+  while (!Serial);
+
+  LcdSerial.begin(115200);      
+  while (!LcdSerial);
+
+  GPSSerial.begin(9600);      
+  while (!LcdSerial);
+
+  
+  LcdSerial.println("SPG(1);");LcdSerial.flush();delay(2000); //开机画面2秒
+  LcdSerial.println("SPG(2);");LcdSerial.flush();delay(200);  //进入主页
+}
+
+void loop(){
+int inout_tag=0;
+  do{
+       //LcdSerial.listen();
+       inout_tag=getkey();
+       if(inout_tag!=0)
+       {
+         if(inout_tag==1)
+         {
+          set_page();
+         }
+         if(inout_tag==2)
+         {
+          gps_point();
+         }
+       }
+       delay(20);
+  }while(1);
+}
+
+
+
+/*********************数据上传函数***********************/
+void data_upload(){
+  Serial.println("#"+x1.substring(1,11)+";"+y1.substring(0,11)+";"+x2.substring(1,11)+";"+y2.substring(0,11)+";"+x3.substring(1,11)+";"+y3.substring(0,11)+";"+x4.substring(1,11)+";"+y4.substring(0,11)+"*");
+}
+/*********************gps启用***********************/
+void GPS_init() {
+ int out=1,cont=0;
+ Save_Data.isGetData = false;
+ while(out){
+ //   while(!GPSSerial.available())
+//	{
+//	for(int k=0;k<10000;k++);
+//	Serial.println("dfa");
+//	break;
+//	}
+    while (GPSSerial.available()) //串口获取到数据开始解析
+    {
+      char c = GPSSerial.read();  //读取一个字节获取的数据
+
+      switch(c)         //判断该字节的值
+      {
+      case '$':         //若是$，则说明是一帧数据的开始
+        GPSSerial.readBytesUntil('@', gpsRxBuffer, 200);    //读取接下来的数据，存放在nmeaSentence字符数组中，最大存放67个字节
+//        Serial.println("gpsRxBuffer---");
+//        Serial.println(gpsRxBuffer);
+        break;
+      default:break;
+      }
+      break;
+    }
+    // Serial.print("****************");
+  
+  char* GPS_BufferHead;
+  char* GPS_BufferTail;
+  if ((GPS_BufferHead = strstr(gpsRxBuffer, "GPRMC,")) != NULL || (GPS_BufferHead = strstr(gpsRxBuffer, "GNRMC,")) != NULL )
+  {
+    if (((GPS_BufferTail = strstr(GPS_BufferHead, "\r\n")) != NULL) && (GPS_BufferTail > GPS_BufferHead))
+    {
+      memcpy(Save_Data.nmeaSentence, GPS_BufferHead, GPS_BufferTail - GPS_BufferHead);
+      Save_Data.isGetData = true;
+//      Serial.print("nmeaSentence---");
+//      Serial.println(nmeaSentence);
+      clrGpsRxBuffer();
+    }
+  }
+  if(Save_Data.isGetData == true)
+  {
+    out=0;
+  }
+  else
+  {
+	cont++;
+	if(cont==500)
+	out=0;
+	delay(2);
+  }
+ }
+  //strcpy(Save_Data.nmeaSentence,"GPRMC,075316.00,A,3018.10881,N,12013.39170,E,0.051,,201016,,,A*71");
+  Serial.println(Save_Data.nmeaSentence);
+}
+
+void clrGpsRxBuffer(void){
+  memset(gpsRxBuffer, 0, gpsRxBufferLength);      //清空
+}
+
+
+
+void parseGpsBuffer()
+{
+	char *subString;
+	char *subStringNext;
+	if (Save_Data.isGetData)
+	{
+		Save_Data.isGetData = false;
+		//Serial.println("**************");
+		//serial.println(Save_Data.GPS_Buffer);
+
+		
+		for (int i = 0 ; i <= 6 ; i++)
+		{
+			if (i == 0)
+			{
+				if ((subString = strstr(Save_Data.nmeaSentence, ",")) == NULL);
+					//errorLog(1);	//解析错误
+			}
+			else
+			{
+				subString++;
+				if ((subStringNext = strstr(subString, ",")) != NULL)
+				{
+					char usefullBuffer[2]; 
+					switch(i)
+					{
+						case 1:memcpy(Save_Data.UTCTime, subString, subStringNext - subString);break;	//获取UTC时间
+						case 2:memcpy(usefullBuffer, subString, subStringNext - subString);break;	//获取UTC时间
+						case 3:memcpy(Save_Data.latitude, subString, subStringNext - subString);break;	//获取纬度信息
+						case 4:memcpy(Save_Data.N_S, subString, subStringNext - subString);break;	//获取N/S
+						case 5:memcpy(Save_Data.longitude, subString, subStringNext - subString);break;	//获取纬度信息
+						case 6:memcpy(Save_Data.E_W, subString, subStringNext - subString);break;	//获取E/W
+
+						default:break;
+					}
+
+					subString = subStringNext;
+					Save_Data.isParseData = true;
+					if(usefullBuffer[0] == 'A')
+						Save_Data.isUsefull = true;
+					else if(usefullBuffer[0] == 'V')
+						Save_Data.isUsefull = false;
+
+				}
+				//else
+				//{
+					//errorLog(2);	//解析错误
+				//}
+			}
+
+
+		}
+		Serial.println(Save_Data.UTCTime);
+	}
+}
+
+
+
+/*********************北京时间输出***********************/
+String getBeiJingTime(String s){
+  int hour = s.substring(0,2).toInt();
+  int minute = s.substring(2,4).toInt();
+  int second = s.substring(4,6).toInt();
+
+  hour += 8;
+
+  if(hour > 24)
+    hour -= 24;
+  s = String(hour) +":"+String(minute) +":"+ String(second);
+  return s;
+}
+
+/*********************纬度输出***********************/
+
+String lat(){
+  String x10,y10,y11,y12;
+  char dsd[80];
+  x10=Save_Data.latitude;
+  int i = x10.toInt();
+  int z=i/100;
+  int m=i%100;
+  y10=x10.substring(5,10);
+  long y = y10.toInt();
+  long w=(y+m*100000)*10;
+  unsigned long d=w/6;//+z;z*10000000
+  y11=dtostrf(d,0,0,dsd); 
+  y12=dtostrf(z,3,0,dsd); 
+  y11=y12+"."+y11+" " + Save_Data.N_S;
+  //Serial.println(y11);
+  return y11;
+}
+
+/********************经度输出***********************/
+
+String lon(){
+  String x10,y10,y11,y12;
+  char dsd[80];
+  x10=Save_Data.longitude;
+  //Serial.println(x10);
+  int i = x10.toInt();
+  int z=i/100;
+  int m=i%100;
+  y10=x10.substring(6,11);
+  //  Serial.println(y10);
+  long y = y10.toInt();
+ // Serial.println(y);
+  long w=(y+m*100000)*10;
+  unsigned long d=w/6;//+z;z*10000000
+  y11=dtostrf(d,0,0,dsd); 
+  y12=dtostrf(z,3,0,dsd); 
+  y11=y12+"."+y11+" " + Save_Data.E_W;
+//  Serial.println(y11);
+  return y11;
+}
+
+/*********************速度输出***********************/
+String parseGprmcSpeed(String s){
+  int pLoc = 0; //paramater location pointer
+  int lEndLoc = 0; //lat parameter end location
+  int dEndLoc = 0; //direction parameter end location
+  String lndSpeed;
+
+  if(s.substring(0,4) == "GPRM")
+  {
+    //Serial.println(s);
+    for(int i = 0; i < 8; i++)
+    {
+      if(i < 7) 
+      {
+        pLoc = s.indexOf(',', pLoc+1);
+      }
+      else
+      {
+        lEndLoc = s.indexOf(',', pLoc+1);
+        lndSpeed = s.substring(pLoc+1, lEndLoc);
+      }
+    }
+    return lndSpeed; 
+  }
+}
+
+/*********************时间输出***********************/
+String parseGprmcTime(String s){
+  int pLoc = 0; //paramater location pointer
+  int lEndLoc = 0; //lat parameter end location
+  int dEndLoc = 0; //direction parameter end location
+  String gpsTime;
+
+  if(s.substring(0,4) == "GPRM")
+  {
+    //Serial.println(s);
+    for(int i = 0; i < 2; i++)
+    {
+      if(i < 1) 
+      {
+        pLoc = s.indexOf(',', pLoc+1);
+      }
+      else
+      {
+        lEndLoc = s.indexOf(',', pLoc+1);
+        gpsTime = s.substring(pLoc+1, lEndLoc);
+      }
+    }
+    return gpsTime; 
+  }
+}
+
+/********************字符串数组打印函数，不带换行符************************/
+void print_minglin(int i){
+    strcpy_P(buffer, (char*)pgm_read_word(&(string_table[i]))); // Necessary casts and dereferencing, just copy.
+    LcdSerial.print(buffer);
+}
+
+/*********************设置页面************************/
+void set_page(){
+
+  int a=0,tig=0;
+  
+  LcdSerial.println("SPG(3);");LcdSerial.flush();delay(200);
+  LcdSerial.println("SPG(4);");LcdSerial.flush();delay(200);
+  
+   while(tig==0)
+   {
+    a=getkey();
+    if(a==1)
+    tig=1;
+   }
+
+  LcdSerial.println("SPG(2);");LcdSerial.flush();delay(200);
+}
+
+/*********************gps页面************************/
+void gps_point(){
+
+  int a=0,tig=0;
+  int mark=0,mark_YN=0,mark_YN_func=0;  //位置标记；删除确认标记
+  String x5,y5;          //位置信息中间变量
+  String serial_nub5="A";//编号信息中间变量
+  LcdSerial.println("SPG(5);");LcdSerial.flush();delay(200);//加载框架
+  LcdSerial.print("DS16(137,82,'" + x1 + "',5,0);DS16(137,58,'" + y1 + "',5,0);");
+  LcdSerial.print("DS16(137,152,'" + x2 + "',5,0);DS16(137,128,'" + y2 + "',5,0);");
+  LcdSerial.print("DS16(137,222,'" + x3 + "',5,0);DS16(137,198,'" + y3 + "',5,0);");
+  LcdSerial.print("DS16(137,291,'" + x4 + "',5,0);DS16(137,268,'" + y4 + "',5,0);");//加载位置信息
+  LcdSerial.print("DS24(30,65,'" + serial_nub1 + "',5,0);");
+  LcdSerial.print("DS24(30,135,'" + serial_nub2 + "',5,0);");
+  LcdSerial.print("DS24(30,200,'" + serial_nub3 + "',5,0);");
+  LcdSerial.println("DS24(30,270,'" + serial_nub4 + "',5,0);");//加载编号信息
+  LcdSerial.flush();delay(200);
+ 
+  while(tig==0)
+   {
+      a=getkey();
+      if(a==1)     //退出
+      {
+         tig=1;
+      }
+      else if(a==2)    //启用二次确认功能，功能为编号刷新操作，重新顺序排列，数据保持不变
+      {
+        print_minglin(4);LcdSerial.println();LcdSerial.flush();delay(200);
+        mark_YN=1;
+        mark_YN_func=3;
+      }
+      else if(a==3)    //第一个数据空间选中，隐藏二次确定功能
+      {
+        print_minglin(0);
+        mark=1;
+        print_minglin(5);LcdSerial.println();LcdSerial.flush();delay(200);
+        mark_YN=0;      
+      }
+      else if(a==4)    //第二个数据空间选中，隐藏二次确定功能
+      {
+        print_minglin(1);
+        mark=2;
+        print_minglin(5);LcdSerial.println();LcdSerial.flush();delay(200);
+        mark_YN=0;            
+      }
+      else if(a==5)    //第三个数据空间选中，隐藏二次确定功能
+      {
+        print_minglin(2);
+        mark=3;
+        print_minglin(5);LcdSerial.println();LcdSerial.flush();delay(200);
+        mark_YN=0;            
+      }
+      else if(a==6)    //第四个数据空间选中，隐藏二次确定功能
+      {
+        print_minglin(3);
+        mark=4;
+        print_minglin(5);LcdSerial.println();LcdSerial.flush();delay(200); //隐藏确定输入框
+        mark_YN=0;            
+      }
+      else if(a==7)    //启用二次确认功能，功能为写入参数，序号保持不变
+      {
+        print_minglin(4);LcdSerial.println();LcdSerial.flush();delay(200);
+        mark_YN=1;
+        mark_YN_func=1;
+      }  
+      else if(a==8)    //启用二次确认功能，功能为删除操作，序号保持不变
+      {
+        print_minglin(4);LcdSerial.println();LcdSerial.flush();delay(200);
+        mark_YN=1;
+        mark_YN_func=2;
+      }
+      else if(a==9)    //上移数据，包括位置信息及序号，隐藏二次确定功能
+      {
+         if(mark==2)
+         {
+           x5=x1;y5=y1;x1=x2;y1=y2;x2=x5;y2=y5;
+           LcdSerial.print("DS16(137,82,'" + x1 + "',5,0);DS16(137,58,'" + y1 + "',5,0);");
+           LcdSerial.print("DS16(137,152,'" + x2 + "',5,0);DS16(137,128,'" + y2 + "',5,0);");
+           serial_nub5=serial_nub1;serial_nub1=serial_nub2;serial_nub2=serial_nub5;
+           LcdSerial.print("DS24(30,65,'" + serial_nub1 + "',5,0);");
+           LcdSerial.print("DS24(30,135,'" + serial_nub2 + "',5,0);");
+           print_minglin(0);LcdSerial.println();LcdSerial.flush();delay(200);
+           mark=1;
+         }
+         else if(mark==3)
+         {
+           x5=x2;y5=y2;x2=x3;y2=y3;x3=x5;y3=y5;
+           LcdSerial.print("DS16(137,152,'" + x2 + "',5,0);DS16(137,128,'" + y2 + "',5,0);");
+           LcdSerial.print("DS16(137,222,'" + x3 + "',5,0);DS16(137,198,'" + y3 + "',5,0);");
+           serial_nub5=serial_nub2;serial_nub2=serial_nub3;serial_nub3=serial_nub5;
+           LcdSerial.print("DS24(30,135,'" + serial_nub2 + "',5,0);");
+           LcdSerial.print("DS24(30,200,'" + serial_nub3 + "',5,0);");         
+           print_minglin(1);LcdSerial.println();LcdSerial.flush();delay(200);
+           mark=2;
+         }
+         else if(mark==4)
+         {
+           x5=x3;y5=y3;x3=x4;y3=y4;x4=x5;y4=y5;
+           LcdSerial.print("DS16(137,222,'" + x3 + "',5,0);DS16(137,198,'" + y3 + "',5,0);");
+           LcdSerial.print("DS16(137,291,'" + x4 + "',5,0);DS16(137,268,'" + y4 + "',5,0);");
+           serial_nub5=serial_nub3;serial_nub3=serial_nub4;serial_nub4=serial_nub5;
+           LcdSerial.print("DS24(30,200,'" + serial_nub3 + "',5,0);");
+           LcdSerial.print("DS24(30,270,'" + serial_nub4 + "',5,0);");         
+           print_minglin(2);LcdSerial.println();LcdSerial.flush();delay(200);
+           mark=3;
+         }
+        print_minglin(5);LcdSerial.println();LcdSerial.flush();delay(200);
+        mark_YN=0; 
+      }
+      else if(a==10)    //下移数据，包括位置信息及序号，隐藏二次确定功能
+      {
+         if(mark==1)
+         {
+           x5=x1;y5=y1;x1=x2;y1=y2;x2=x5;y2=y5;
+           LcdSerial.print("DS16(137,82,'" + x1 + "',5,0);DS16(137,58,'" + y1 + "',5,0);");
+           LcdSerial.print("DS16(137,152,'" + x2 + "',5,0);DS16(137,128,'" + y2 + "',5,0);");
+           serial_nub5=serial_nub1;serial_nub1=serial_nub2;serial_nub2=serial_nub5;
+           LcdSerial.print("DS24(30,65,'" + serial_nub1 + "',5,0);");
+           LcdSerial.print("DS24(30,135,'" + serial_nub2 + "',5,0);");
+           print_minglin(1);LcdSerial.println();LcdSerial.flush();delay(200);
+           mark=2;
+         }
+         else if(mark==2)
+         {
+           x5=x2;y5=y2;x2=x3;y2=y3;x3=x5;y3=y5;
+           LcdSerial.print("DS16(137,152,'" + x2 + "',5,0);DS16(137,128,'" + y2 + "',5,0);");
+           LcdSerial.print("DS16(137,222,'" + x3 + "',5,0);DS16(137,198,'" + y3 + "',5,0);");
+           serial_nub5=serial_nub2;serial_nub2=serial_nub3;serial_nub3=serial_nub5;
+           LcdSerial.print("DS24(30,135,'" + serial_nub2 + "',5,0);");
+           LcdSerial.print("DS24(30,200,'" + serial_nub3 + "',5,0);");         
+           print_minglin(2);LcdSerial.println();LcdSerial.flush();delay(200);
+           mark=3;
+         }
+         else if(mark==3)
+         {
+           x5=x3;y5=y3;x3=x4;y3=y4;x4=x5;y4=y5;
+           LcdSerial.print("DS16(137,222,'" + x3 + "',5,0);DS16(137,198,'" + y3 +"',5,0);");
+           LcdSerial.print("DS16(137,291,'" + x4 + "',5,0);DS16(137,268,'" + y4 +"',5,0);");
+           serial_nub5=serial_nub3;serial_nub3=serial_nub4;serial_nub4=serial_nub5;
+           LcdSerial.print("DS24(30,200,'" + serial_nub3 +"',5,0);");
+           LcdSerial.print("DS24(30,270,'" + serial_nub4 +"',5,0);");         
+           print_minglin(3);LcdSerial.println();LcdSerial.flush();delay(200);
+           mark=4;
+         }
+        print_minglin(5);LcdSerial.println();LcdSerial.flush();delay(200);
+        mark_YN=0; 
+      }
+      else if(a==11)    //确认操作，mark_YN_func=1执行写入，mark_YN_func=2执行删除，mark_YN_func=3执行序号刷新，隐藏二次确定功能
+      {
+	  //Serial.println(mark_YN);
+	  //Serial.println(mark_YN_func);
+        if(mark_YN==1)
+        {
+          if(mark_YN_func==1 || mark_YN_func==2) 
+          { 
+              if(mark==1)
+              {
+                  x1="              ";y1="              ";
+                  LcdSerial.print("DS16(137,82,'" + x1 + "',5,0);DS16(137,58,'" + y1 +"',5,0);");
+              }
+              else if(mark==2)
+              {
+                  x2="              ";y2="              ";
+                  LcdSerial.print("DS16(137,152,'" + x2 + "',5,0);DS16(137,128,'" + y2 +"',5,0);");
+              }
+              else if(mark==3)
+              { 
+                  x3="              ";y3="              ";
+                  LcdSerial.print("DS16(137,222,'" + x3 + "',5,0);DS16(137,198,'" + y3 +"',5,0);");
+              }
+              else if(mark==4)
+              {
+                  x4="              ";y4="              ";
+                  LcdSerial.print("DS16(137,291,'" + x4 +"',5,0);DS16(137,268,'" + y4 + "',5,0);");
+              }
+			  if  (mark_YN_func==1) 
+			  {
+				  GPS_init();
+				  parseGpsBuffer();
+				  if (Save_Data.isUsefull == true)
+				  {
+					if(mark==1)
+					{      
+					  y1=lon();x1=lat();
+					  LcdSerial.print("DS16(137,82,'" + x1 + "',5,0);DS16(137,58,'" + y1 +"',5,0);");
+					}
+					else if(mark==2)
+					{
+					  y2=lon();x2=lat();
+					  LcdSerial.print("DS16(137,152,'" + x2 + "',5,0);DS16(137,128,'" + y2 +"',5,0);");
+					}
+					else if(mark==3)
+					{
+					  y3=lon();x3=lat();
+					  LcdSerial.print("DS16(137,222,'" + x3 + "',5,0);DS16(137,198,'" + y3 +"',5,0);");
+					}
+					else if(mark==4)
+					{
+					  y4=lon();x4=lat();
+					  LcdSerial.print("DS16(137,291,'" + x4 + "',5,0);DS16(137,268,'" + y4 +"',5,0);");
+					}
+				  }
+				  memset(Save_Data.nmeaSentence, 0, 80); 
+			  }
+          }
+          if(mark_YN_func==3)
+          {
+             serial_nub1="A",serial_nub2="B",serial_nub3="C",serial_nub4="D";
+             LcdSerial.print("DS24(30,65,'" + serial_nub1 + "',5,0);");
+             LcdSerial.print("DS24(30,135,'" + serial_nub2 + "',5,0);");
+             LcdSerial.print("DS24(30,200,'" + serial_nub3 + "',5,0);");
+             LcdSerial.print("DS24(30,270,'" + serial_nub4 + "',5,0);");
+          }
+        }
+        print_minglin(5);LcdSerial.println();LcdSerial.flush();delay(200);
+        mark_YN=0;
+      }
+      else if(a==12)    //取消删除操作，隐藏二次确定功能
+      {
+        print_minglin(5);LcdSerial.println();LcdSerial.flush();delay(200);
+        mark_YN=0;
+      }
+      else if(a==13)
+      {
+        data_upload();
+      }
+      else if(a==0)     //其它区域选中，不选中任何东西，隐藏二次确定功能
+      {
+         print_minglin(6);
+         print_minglin(5);LcdSerial.println();LcdSerial.flush();delay(200);
+         mark=0;
+         mark_YN=0;
+
+    }
+      
+   
+   }
+  LcdSerial.println("SPG(2);");LcdSerial.flush();delay(200);//返回后加载主页信息
+}
+
+/*********************触摸反馈键值检测，范围0-33************************/
+int getkey(){
+  
+  char cmd[5];     //命令缓冲区，存放[]中传来的命令,靠cjs进行位置累加字符串
+  int cjs=0;       //cjs:cmd命令计数
+  int iscmd=0;     //==1 表示处于[]内部，cmd记录中
+  int iscmdok=0;   //==1 表示有命令处理
+  int n=-1;        //没数据返回默认值-1
+  char gc=0;
+
+  
+  while (LcdSerial.available() > 0)  //记录标示符内数据
+    {  
+        gc= char(LcdSerial.read());
+		//Serial.print(gc);
+        delay(5);
+            if (gc=='[')
+            {
+              cjs=0;
+              iscmd=1;
+            }
+            else if(gc==']')
+            { iscmd=0;
+              iscmdok=1;
+			  if(cjs==4)
+			  cmd[4]=']';
+            }
+            else if (iscmd==1)
+            { if (cjs<5) cmd[cjs]=gc;
+              cjs++;
+            }
+    }
+
+    if(iscmdok==1)    //键码值转换
+    {  
+        if ((cmd[0]=='B') & (cmd[1]=='N'))
+        { n=cmd[3]-0x30;
+          if ((cmd[4]>=0x30) & (cmd[4]<=0x39))
+          { n=n*10+cmd[4]-0x30;
+          }
+        //此时n为键码,在此写对应的按键处理程序
+		//Serial.print(" ");
+		//Serial.println(cmd);
+         //cmd[4]=0;
+        }
+        Serial.println(n);
+     }
+return n;
+}
+
